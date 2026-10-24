@@ -7,18 +7,18 @@ load_dotenv()
 class ConfigError(Exception):
     pass
 
-# ۱. آیدی گروه و توکن ربات
+# ۱. توکن و شناسه گروه
 BOT_TOKEN: str = os.getenv("BOT_TOKEN", "").strip()
 GROUP_ID: int = int(os.getenv("GROUP_ID", os.getenv("GROUP_CHAT_ID", "0")))
 GROUP_CHAT_ID: int = GROUP_ID
 
-# ۲. ادمین‌ها
+# ۲. شناسه ادمین‌ها
 _admin_ids_raw = os.getenv("ADMIN_IDS", "")
 ADMIN_IDS: List[int] = [
     int(x.strip()) for x in _admin_ids_raw.split(",") if x.strip().isdigit()
 ]
 
-# ۳. متغیرهای تاپیک‌ها (پشتیبانی از هر دو حالت TOPIC_1 تا TOPIC_9 و اسامی انگلیسی)
+# ۳. متغیرهای تاپیک‌ها
 TOPIC_1: int = int(os.getenv("TOPIC_1", os.getenv("TOPIC_GENERAL", "1")))
 TOPIC_2: int = int(os.getenv("TOPIC_2", os.getenv("TOPIC_PODCAST", "213")))
 TOPIC_3: int = int(os.getenv("TOPIC_3", os.getenv("TOPIC_RULES", "14")))
@@ -29,7 +29,7 @@ TOPIC_7: int = int(os.getenv("TOPIC_7", os.getenv("TOPIC_PROJECTS", "4")))
 TOPIC_8: int = int(os.getenv("TOPIC_8", os.getenv("TOPIC_REVIEWS", "473")))
 TOPIC_9: int = int(os.getenv("TOPIC_9", os.getenv("TOPIC_AUDIO", "488")))
 
-# متغیرهای مستعار هم‌نام برای بخش‌های دیگر
+# نام‌های مستعار تاپیک‌ها
 TOPIC_GENERAL = TOPIC_1
 TOPIC_PODCAST = TOPIC_2
 TOPIC_RULES = TOPIC_3
@@ -40,12 +40,17 @@ TOPIC_PROJECTS = TOPIC_7
 TOPIC_REVIEWS = TOPIC_8
 TOPIC_AUDIO = TOPIC_9
 
-# ۴. محدودیت‌های ارسال پیام
+# ۴. متغیرهای اخطار، مسدودسازی و نرخ ارسال پیام
+MAX_WARNINGS: int = int(os.getenv("MAX_WARNINGS", "3"))
+MUTE_DURATION_HOURS: int = int(os.getenv("MUTE_DURATION_HOURS", "24"))
+BAN_DURATION_DAYS: int = int(os.getenv("BAN_DURATION_DAYS", "7"))
+WARNING_RESET_DAYS: int = int(os.getenv("WARNING_RESET_DAYS", "30"))
+
 GENERAL_HOURLY_LIMIT: int = int(os.getenv("RATE_LIMIT_GENERAL_PER_HOUR", os.getenv("GENERAL_HOURLY_LIMIT", "10")))
 GENERAL_DAILY_LIMIT: int = int(os.getenv("GENERAL_DAILY_LIMIT", "15"))
 DATABASE_PATH: str = os.getenv("DATABASE_PATH", "bot_database.db")
 
-# دیکشنری نگاشت تاپیک‌ها
+# دیکشنری تاپیک‌ها
 TOPICS: Dict[str, int] = {
     "general": TOPIC_1,
     "podcast": TOPIC_2,
@@ -82,6 +87,10 @@ class Config:
         self.TOPIC_PROJECTS = TOPIC_PROJECTS
         self.TOPIC_REVIEWS = TOPIC_REVIEWS
         self.TOPIC_AUDIO = TOPIC_AUDIO
+        self.MAX_WARNINGS = MAX_WARNINGS
+        self.MUTE_DURATION_HOURS = MUTE_DURATION_HOURS
+        self.BAN_DURATION_DAYS = BAN_DURATION_DAYS
+        self.WARNING_RESET_DAYS = WARNING_RESET_DAYS
         self.GENERAL_HOURLY_LIMIT = GENERAL_HOURLY_LIMIT
         self.GENERAL_DAILY_LIMIT = GENERAL_DAILY_LIMIT
         self.DATABASE_PATH = DATABASE_PATH
