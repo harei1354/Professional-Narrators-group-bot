@@ -28,8 +28,6 @@ LEGACY_TOPIC_ENV_KEYS = {
     "audio": "TOPIC_AUDIO",
 }
 
-GENERAL_DAILY_LIMIT = 15  # سقف روزانه‌ی پیام هر کاربر در گفت‌وگوی عمومی (UTC تقویمی)
-
 class ConfigError(Exception):
     """خطای اعتبارسنجی پیکربندی — مانع راه‌اندازی ربات می‌شود."""
 
@@ -42,6 +40,7 @@ class Config:
     db_path: str
     banned_words_path: str
     timezone: str = "Asia/Tehran"                # منطقه‌ی زمانی مستندشده برای شمارش ماه/روز تقویمی
+    general_rate_limit: int = 10                 # سقف پیام در ساعت در گفت‌وگوی عمومی (RATE_LIMIT_GENERAL_PER_HOUR)
     general_rate_limit: int = 10                 # سقف پیام کاربران معمولی در ساعت در گفت‌وگوی عمومی (RATE_LIMIT_GENERAL_PER_HOUR)
     topic_names: Dict[str, str] = field(default_factory=lambda: dict(zip(TOPIC_KEYS, (
         "گفت‌وگوی عمومی گویندگان", "پادکست؛ تولید و تدوین", "قوانین و اطلاعیه‌ها",
