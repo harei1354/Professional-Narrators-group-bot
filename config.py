@@ -40,17 +40,18 @@ TOPIC_PROJECTS = TOPIC_7
 TOPIC_REVIEWS = TOPIC_8
 TOPIC_AUDIO = TOPIC_9
 
-# ۴. متغیرهای اخطار، مسدودسازی و نرخ ارسال پیام
+# ۴. سیستم اخطار و تعلیق (دقیقاً متغیرهایی که handlers.py نیاز دارد)
 MAX_WARNINGS: int = int(os.getenv("MAX_WARNINGS", "3"))
 MUTE_DURATION_HOURS: int = int(os.getenv("MUTE_DURATION_HOURS", "24"))
 BAN_DURATION_DAYS: int = int(os.getenv("BAN_DURATION_DAYS", "7"))
 WARNING_RESET_DAYS: int = int(os.getenv("WARNING_RESET_DAYS", "30"))
 
+# ۵. محدودیت‌های ارسال پیام و دیتابیس
 GENERAL_HOURLY_LIMIT: int = int(os.getenv("RATE_LIMIT_GENERAL_PER_HOUR", os.getenv("GENERAL_HOURLY_LIMIT", "10")))
 GENERAL_DAILY_LIMIT: int = int(os.getenv("GENERAL_DAILY_LIMIT", "15"))
 DATABASE_PATH: str = os.getenv("DATABASE_PATH", "bot_database.db")
 
-# دیکشنری تاپیک‌ها
+# دیکشنری نگاشت تاپیک‌ها
 TOPICS: Dict[str, int] = {
     "general": TOPIC_1,
     "podcast": TOPIC_2,
