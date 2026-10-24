@@ -1,89 +1,135 @@
+# -*- coding: utf-8 -*-
+"""moderation.py — موتور بررسی قوانین و تنبیهات.
+در تشخیص محتوای تخصصی/بازنویسی معنایی ادعای قطعی وجود ندارد؛ فقط سیگنال‌های قابل اتکا بررسی می‌شوند."""
+from __future__ import annotations
+import datetime as dt
+import hashlib
+import html
 import re
-import os
-import logging
-from typing import Set, Tuple, Optional
+import unicodedata
+from dataclasses import dataclass
+from typing import Iterable
+from database import Database, fingerprint
 
-logger = logging.getLogger(__name__)
-
-class BannedWords:
-    """کلاس بارگذاری و نرمال‌سازی کلمات ممنوعه"""
-    def __init__(self, file_path: Optional[str] = None):
-        if file_path is None:
-            self.file_path = os.path.join(os.path.dirname(__file__), "banned_words.txt")
-        else:
-            self.file_path = file_path
-        self.words: Set[str] = set()
-        self.load()
-
-    def load(self):
-        self.words.clear()
-        if os.path.exists(self.file_path):
-            try:
-                with open(self.file_path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith("#"):
-                            norm = ModerationEngine.normalize_text(line)
-                            if norm:
-                                self.words.add(norm)
-                logger.info(f"Loaded {len(self.words)} banned words successfully.")
-            except Exception as e:
-                logger.error(f"Error reading banned_words.txt: {e}")
-        else:
-            logger.warning(f"banned_words.txt not found at {self.file_path}")
-
-class ModerationEngine:
-    """موتور تحلیل محتوا، فیلتر کلمات و رفتارهای نامناسب"""
-    def __init__(self, banned_words_path: Optional[str] = None):
-        self.banned_words_loader = BannedWords(banned_words_path)
-
-    @staticmethod
-    def normalize_text(text: str) -> str:
-        """نرمال‌سازی پیشرفته متن: حذف کشیدگی، اعراب، نیم‌فاصله‌ها و یکسان‌سازی حروف"""
-        if not text:
-            return ""
-        # یکسان‌سازی ی و ک عربی
-        text = text.replace("ي", "ی").replace("ك", "ک")
-        # حذف اعراب و حرکات تنوین و تشدید
-        text = re.sub(r"[\u064B-\u065F\u0670]", "", text)
-        # حذف کشیدگی حروف (تطویل)
-        text = re.sub(r"ـ+", "", text)
-        # حذف کاراکترهای نامرئی، نیم‌فاصله و فاصله‌های پنهان
-        text = text.replace("\u200c", "").replace("\u200b", "").replace("\ufeff", "")
-        return text.lower().strip()
-
-    def check_banned_words(self, text: str) -> Tuple[bool, Optional[str]]:
-        """تشخیص دقیق کلمات ممنوعه (ساده، فاصله‌دار، و شکسته مثل ک . س)"""
-        if not text or not self.banned_words_loader.words:
-            return False, None
-
-        norm_text = self.normalize_text(text)
-        words_in_text = norm_text.split()
-
-        # ۱. بررسی تطابق کلمات مستقیم و عبارات ترکیبی
-        for banned in self.banned_words_loader.words:
-            pattern = r"(?:^|\s|[.,!؟_\-–/\\*+])" + re.escape(banned) + r"(?:$|\s|[.,!؟_\-–/\\*+])"
-            if re.search(pattern, norm_text) or banned in words_in_text:
-                return True, banned
-
-        # ۲. بررسی کلمات شکسته و فاصله‌دار (Obfuscated)
-        compressed_text = re.sub(r"[\s._\-–/\\*+]+", "", norm_text)
-        for banned in self.banned_words_loader.words:
-            clean_banned = re.sub(r"[\s._\-–/\\*+]+", "", banned)
-            if len(clean_banned) >= 3 and clean_banned in compressed_text:
-                return True, banned
-
-        return False, None
-
-# ایجاد نمونه یکتا (Singleton) برای استفاده توابع کمکی
-_moderation_engine = ModerationEngine()
-
-def check_banned_words(text: str) -> bool:
-    is_banned, _ = _moderation_engine.check_banned_words(text)
-    return is_banned
+# نرمال‌سازی حروف رایج فارسی/عربی، نیم‌فاصله، علائم کشیده و فواصل غیرعادی.
+CHAR_MAP = str.maketrans({
+    "ي":"ی", "ى":"ی", "ك":"ک", "ة":"ه", "ۀ":"ه", "ؤ":"و", "إ":"ا", "أ":"ا", "ٱ":"ا",
+    "ـ":"", "‌":" ", "‍":" ",
+})
 
 def normalize_text(text: str) -> str:
-    return ModerationEngine.normalize_text(text)
+    text = unicodedata.normalize("NFKC", text or "").translate(CHAR_MAP).lower()
+    text = re.sub(r"[\u064b-\u065f\u0670]", "", text)
+    text = re.sub(r"(.)\1{2,}", r"\1\1", text)  # محدودکردن کشیده‌ی نویسه (نه حذف کامل)
+    text = re.sub(r"[^\w@.+:/-]+", " ", text, flags=re.UNICODE)
+    return " ".join(text.split())
 
-async def check_duplicate_content(user_id: int, topic_id: int, text: str) -> bool:
+class BannedWords:
+    def __init__(self, path: str, exceptions: Iterable[str] = ()):
+        self.path = path
+        self.exceptions = {normalize_text(x) for x in exceptions}
+        self.words: list[str] = []
+        self.reload()
+
+    def reload(self):
+        try:
+            with open(self.path, encoding="utf-8") as f:
+                self.words = [normalize_text(line.strip()) for line in f
+                              if line.strip() and not line.lstrip().startswith("#")]
+        except FileNotFoundError:
+            self.words = []
+
+    def find(self, text: str) -> str | None:
+        norm = normalize_text(text)
+        padded = f" {norm} "
+        for word in self.words:
+            if word and word not in self.exceptions and f" {word} " in padded:
+                return word
+        return None
+
+# لینک URL، دامنه، shorteners، لینک‌های t.me، username و متن دارای entity لینک
+URL_RE = re.compile(r"(?i)(?:https?://|www\.|t\.me/|telegram\.me/|bit\.ly/|tinyurl\.com/|goo\.gl/|\b[a-z0-9-]+\.(?:com|net|org|ir|io|co|me|info|app|dev)\b)")
+USERNAME_RE = re.compile(r"(?<!\w)@[A-Za-z][A-Za-z0-9_]{4,31}\b")
+
+def has_link_or_ad(text: str, entities=(), forwarded: bool = False, forward_origin=None) -> bool:
+    if forwarded or forward_origin is not None:
+        return True
+    if URL_RE.search(text or "") or USERNAME_RE.search(text or ""):
+        return True
+    # Telegram MessageEntity TEXT_LINK/URL/CUSTOM_EMOJI etc.; entity.type strings
+    for entity in entities or ():
+        if getattr(entity, "type", "") in ("text_link", "url"):
+            return True
     return False
+
+def text_fingerprint(text: str | None, file_ids: Iterable[str] = ()) -> str:
+    # متمایزکردن متن-فقط، رسانه-فقط و ترکیبی؛ فایل تلگرام با file_unique_id در handler.
+    parts = sorted(set(x for x in file_ids if x))
+    return fingerprint(normalize_text(text or ""), "|".join(parts) if parts else None)
+
+@dataclass
+class Violation:
+    rule: str
+    details: str
+    penalty_stage: int
+    action: str
+    # محدودیت‌هایی که باید به restrict_chat_member داده شوند.
+    permissions: dict | None = None
+    until: dt.datetime | None = None
+
+class ModerationEngine:
+    def __init__(self, db: Database, banned: BannedWords):
+        self.db, self.banned = db, banned
+
+    async def detect(self, text: str, entities=(), forwarded=False, forward_origin=None):
+        bad = self.banned.find(text)
+        if bad:
+            return "banned_word", "عبارت نامناسب (فقط دسته تخلف ثبت می‌شود)"
+        if has_link_or_ad(text, entities, forwarded, forward_origin):
+            return "link_ad", "لینک، نام کاربری یا پیام فورواردشده مجاز نیست"
+        return None
+
+    async def make_fingerprint(self, text: str, file_ids: Iterable[str], user_id: int,
+                               chat_id: int, message_id: int, topic: str) -> bool:
+        fp = text_fingerprint(text, file_ids)
+        # متن خالی و بدون رسانه اثرانگشت معنادار ندارد
+        if not (normalize_text(text or "") or list(file_ids)):
+            return True
+        return await self.db.check_and_store_hash(fp, user_id, chat_id, message_id, topic)
+
+    async def record_violation(self, user_id: int, update_id: str, rule: str,
+                               message_kind: str, chat_id: int, message_id: int,
+                               details: str = "") -> Violation | None:
+        """سطح تنبیه بر اساس سابقه پایدار؛ update_id یکتا جلوگیری از اجرای دوباره."""
+        count_before = await self.db.count_violations(user_id)
+        stage = min(count_before + 1, 4)
+        actions = {1: "warning", 2: "mute24", 3: "mute7", 4: "ban"}
+        saved = await self.db.add_violation(user_id, rule, update_id, message_kind,
+                                            chat_id, message_id, "pending", details)
+        if not saved:
+            return None
+        if stage == 1:
+            action, until, perms = "warning", None, None
+        elif stage == 2:
+            action, until, perms = "mute24", dt.datetime.now(dt.timezone.utc)+dt.timedelta(hours=24), {
+                "can_send_messages":False, "can_send_audios":False, "can_send_documents":False,
+                "can_send_photos":False, "can_send_videos":False, "can_send_video_notes":False,
+                "can_send_voice_notes":False, "can_send_polls":False, "can_send_other_messages":False,
+                "can_add_web_page_previews":False, "can_invite_users":True, "can_pin_messages":True,
+                "can_change_info":True, "can_manage_topics":True}
+        elif stage == 3:
+            action, until, perms = "mute7", dt.datetime.now(dt.timezone.utc)+dt.timedelta(days=7), {
+                "can_send_messages":False, "can_send_audios":False, "can_send_documents":False,
+                "can_send_photos":False, "can_send_videos":False, "can_send_video_notes":False,
+                "can_send_voice_notes":False, "can_send_polls":False, "can_send_other_messages":False,
+                "can_add_web_page_previews":False, "can_invite_users":True, "can_pin_messages":True,
+                "can_change_info":True, "can_manage_topics":True}
+        else:
+            action, until, perms = "ban", None, None
+        # نتیجه اولیه pending است، handler پس از API موفقیت/شکست را ثبت می‌کند.
+        return Violation(rule, details, stage, action, perms, until)
+
+    async def set_action_result(self, violation_id: int, user_id: int, update_id: str,
+                                action: str, success: bool):
+        # شناسه‌ی تخلف: update_id یکتا؛ ثبت رخداد گزارش‌پذیر، داده‌ی اولیه دست‌نخورده
+        await self.db.log_admin_event("action_result", f"user={user_id} update={update_id} action={action} success={success}")

@@ -1,105 +1,134 @@
+# -*- coding: utf-8 -*-
+"""config.py — خواندن و اعتبارسنجی تنظیمات (python-dotenv + pydantic)
+OWNER_ID, BOT_TOKEN و شناسه‌ی ۹ موضوع (TOPIC_1 تا TOPIC_9) از متغیر محیطی خوانده می‌شوند؛ نام‌های معنایی قدیمی نیز پشتیبانی می‌شوند.
+هیچ شناسه‌ی ساختگی‌ای تولید نمی‌شود؛ اگر متغیری نباشد، اعتبارسنجی خطا می‌دهد."""
+from __future__ import annotations
 import os
-from typing import Dict, List, Optional
+import sys
+from dataclasses import dataclass, field
+from typing import Dict, Optional
 from dotenv import load_dotenv
 
-load_dotenv()
+# کلیدهای داخلی پایدار؛ TOPIC_1..TOPIC_9 مطابق ترتیب موضوع‌های گروه‌اند.
+TOPIC_KEYS = (
+    "general", "podcast", "rules", "portfolio", "intro", "tariff",
+    "projects", "reviews", "audio",
+)
 
-class ConfigError(Exception):
-    pass
+# Numbered environment variables are the public configuration API.
+TOPIC_NUMBER_TO_KEY = {i: key for i, key in enumerate(TOPIC_KEYS, start=1)}
+TOPIC_KEY_TO_NUMBER = {key: number for number, key in TOPIC_NUMBER_TO_KEY.items()}
 
-# ۱. توکن و شناسه گروه
-BOT_TOKEN: str = os.getenv("BOT_TOKEN", "").strip()
-GROUP_ID: int = int(os.getenv("GROUP_ID", os.getenv("GROUP_CHAT_ID", "0")))
-GROUP_CHAT_ID: int = GROUP_ID
-
-# ۲. شناسه ادمین‌ها
-_admin_ids_raw = os.getenv("ADMIN_IDS", "")
-ADMIN_IDS: List[int] = [
-    int(x.strip()) for x in _admin_ids_raw.split(",") if x.strip().isdigit()
-]
-
-# ۳. متغیرهای تاپیک‌ها
-TOPIC_1: int = int(os.getenv("TOPIC_1", os.getenv("TOPIC_GENERAL", "1")))
-TOPIC_2: int = int(os.getenv("TOPIC_2", os.getenv("TOPIC_PODCAST", "213")))
-TOPIC_3: int = int(os.getenv("TOPIC_3", os.getenv("TOPIC_RULES", "14")))
-TOPIC_4: int = int(os.getenv("TOPIC_4", os.getenv("TOPIC_PORTFOLIO", "3")))
-TOPIC_5: int = int(os.getenv("TOPIC_5", os.getenv("TOPIC_INTRO", "66")))
-TOPIC_6: int = int(os.getenv("TOPIC_6", os.getenv("TOPIC_TARIFF", "72")))
-TOPIC_7: int = int(os.getenv("TOPIC_7", os.getenv("TOPIC_PROJECTS", "4")))
-TOPIC_8: int = int(os.getenv("TOPIC_8", os.getenv("TOPIC_REVIEWS", "473")))
-TOPIC_9: int = int(os.getenv("TOPIC_9", os.getenv("TOPIC_AUDIO", "488")))
-
-# نام‌های مستعار تاپیک‌ها
-TOPIC_GENERAL = TOPIC_1
-TOPIC_PODCAST = TOPIC_2
-TOPIC_RULES = TOPIC_3
-TOPIC_PORTFOLIO = TOPIC_4
-TOPIC_INTRO = TOPIC_5
-TOPIC_TARIFF = TOPIC_6
-TOPIC_PROJECTS = TOPIC_7
-TOPIC_REVIEWS = TOPIC_8
-TOPIC_AUDIO = TOPIC_9
-
-# ۴. سیستم اخطار و تعلیق (دقیقاً متغیرهایی که handlers.py نیاز دارد)
-MAX_WARNINGS: int = int(os.getenv("MAX_WARNINGS", "3"))
-MUTE_DURATION_HOURS: int = int(os.getenv("MUTE_DURATION_HOURS", "24"))
-BAN_DURATION_DAYS: int = int(os.getenv("BAN_DURATION_DAYS", "7"))
-WARNING_RESET_DAYS: int = int(os.getenv("WARNING_RESET_DAYS", "30"))
-
-# ۵. محدودیت‌های ارسال پیام و دیتابیس
-GENERAL_HOURLY_LIMIT: int = int(os.getenv("RATE_LIMIT_GENERAL_PER_HOUR", os.getenv("GENERAL_HOURLY_LIMIT", "10")))
-GENERAL_DAILY_LIMIT: int = int(os.getenv("GENERAL_DAILY_LIMIT", "15"))
-DATABASE_PATH: str = os.getenv("DATABASE_PATH", "bot_database.db")
-
-# دیکشنری نگاشت تاپیک‌ها
-TOPICS: Dict[str, int] = {
-    "general": TOPIC_1,
-    "podcast": TOPIC_2,
-    "rules": TOPIC_3,
-    "portfolio": TOPIC_4,
-    "intro": TOPIC_5,
-    "tariff": TOPIC_6,
-    "projects": TOPIC_7,
-    "reviews": TOPIC_8,
-    "audio": TOPIC_9,
+TOPIC_ENV_KEYS = dict(zip(TOPIC_KEYS, (f"TOPIC_{i}" for i in range(1, 10))))
+LEGACY_TOPIC_ENV_KEYS = {
+    "general": "TOPIC_GENERAL", "podcast": "TOPIC_PODCAST",
+    "rules": "TOPIC_RULES", "portfolio": "TOPIC_PORTFOLIO",
+    "intro": "TOPIC_INTRO", "tariff": "TOPIC_TARIFF",
+    "projects": "TOPIC_PROJECTS", "reviews": "TOPIC_REVIEWS",
+    "audio": "TOPIC_AUDIO",
 }
 
+class ConfigError(Exception):
+    """خطای اعتبارسنجی پیکربندی — مانع راه‌اندازی ربات می‌شود."""
+
+@dataclass(frozen=True)
 class Config:
-    def __init__(self):
-        self.BOT_TOKEN = BOT_TOKEN
-        self.GROUP_ID = GROUP_ID
-        self.GROUP_CHAT_ID = GROUP_CHAT_ID
-        self.ADMIN_IDS = ADMIN_IDS
-        self.TOPIC_1 = TOPIC_1
-        self.TOPIC_2 = TOPIC_2
-        self.TOPIC_3 = TOPIC_3
-        self.TOPIC_4 = TOPIC_4
-        self.TOPIC_5 = TOPIC_5
-        self.TOPIC_6 = TOPIC_6
-        self.TOPIC_7 = TOPIC_7
-        self.TOPIC_8 = TOPIC_8
-        self.TOPIC_9 = TOPIC_9
-        self.TOPIC_GENERAL = TOPIC_GENERAL
-        self.TOPIC_PODCAST = TOPIC_PODCAST
-        self.TOPIC_RULES = TOPIC_RULES
-        self.TOPIC_PORTFOLIO = TOPIC_PORTFOLIO
-        self.TOPIC_INTRO = TOPIC_INTRO
-        self.TOPIC_TARIFF = TOPIC_TARIFF
-        self.TOPIC_PROJECTS = TOPIC_PROJECTS
-        self.TOPIC_REVIEWS = TOPIC_REVIEWS
-        self.TOPIC_AUDIO = TOPIC_AUDIO
-        self.MAX_WARNINGS = MAX_WARNINGS
-        self.MUTE_DURATION_HOURS = MUTE_DURATION_HOURS
-        self.BAN_DURATION_DAYS = BAN_DURATION_DAYS
-        self.WARNING_RESET_DAYS = WARNING_RESET_DAYS
-        self.GENERAL_HOURLY_LIMIT = GENERAL_HOURLY_LIMIT
-        self.GENERAL_DAILY_LIMIT = GENERAL_DAILY_LIMIT
-        self.DATABASE_PATH = DATABASE_PATH
-        self.TOPICS = TOPICS
+    bot_token: str
+    owner_id: int
+    group_id: Optional[int]                      # شناسه عددی سوپرگروه (اختیاری؛ با /group_id قابل تنظیم)
+    topics: Dict[str, int]                       # شناسه‌های واقعی Message Thread ID
+    db_path: str
+    banned_words_path: str
+    timezone: str = "Asia/Tehran"                # منطقه‌ی زمانی مستندشده برای شمارش ماه/روز تقویمی
+    general_rate_limit: int = 10                 # سقف پیام در ساعت در گفت‌وگوی عمومی (RATE_LIMIT_GENERAL_PER_HOUR)
+    general_rate_limit: int = 10                 # سقف پیام کاربران معمولی در ساعت در گفت‌وگوی عمومی (RATE_LIMIT_GENERAL_PER_HOUR)
+    topic_names: Dict[str, str] = field(default_factory=lambda: dict(zip(TOPIC_KEYS, (
+        "گفت‌وگوی عمومی گویندگان", "پادکست؛ تولید و تدوین", "قوانین و اطلاعیه‌ها",
+        "نمونه‌کارهای گویندگی", "معرفی گویندگان حرفه‌ای", "تعرفه‌ها و قراردادهای گویندگی",
+        "پروژه‌ها و درخواست‌های همکاری", "نقد و بررسی کارهای گویندگی", "ویرایش و بهینه‌سازی صدا",
+    ))))
+    # ثابت‌های قوانین (قابل تنظیم نیستند مگر با کد — مطابق متن قانون)
+    general_hourly: int = 10
+    general_daily: int = 15
+    general_refresh_users: int = 5               # «پنج کاربر دیگر» = ۵ کاربرِ متمایزِ غیر از خودِ کاربر
+    portfolio_weekly: int = 1
+    portfolio_monthly: int = 3
+    podcast_hourly: int = 3
+    podcast_total: int = 12
+    podcast_refresh_users: int = 5
+    intro_monthly: int = 1
+    tariff_edits_allowed: int = 1                # یک ویرایش مجاز در ماه
+    penalty_mute1_hours: int = 24
+    penalty_mute2_days: int = 7
+    exempt_admins_from_penalties: bool = True    # پیش‌فرض امن: تنبیه خودکارِ مدیران/مالک خاموش
 
-_config_instance = Config()
+def _get_env(name: str) -> str:
+    val = os.environ.get(name, "").strip()
+    if not val:
+        raise ConfigError(
+            f"متغیر محیطی «{name}» تنظیم نشده است. آن را در .env یا Environment Variables در Render وارد کنید."
+        )
+    return val
 
-def load_config() -> Config:
-    return _config_instance
+def _get_topic_id(name: str) -> int:
+    # شماره‌گذاری TOPIC_1..TOPIC_9 مرجع است؛ نام معنایی برای سازگاری عقب‌رو fallback است.
+    env_name = TOPIC_ENV_KEYS[name]
+    raw = os.environ.get(env_name, "").strip()
+    if not raw:
+        legacy_name = LEGACY_TOPIC_ENV_KEYS[name]
+        raw = os.environ.get(legacy_name, "").strip()
+        if raw:
+            env_name = legacy_name
+    if not raw:
+        # موضوعات ناقص ربات را از کار نمی‌اندازند اما در گروه اعلام می‌شوند؛ مقدار 0 یعنی «تنظیم نشده»
+        return 0
+    try:
+        return int(raw)
+    except ValueError:
+        raise ConfigError(f"مقدار {env_name} باید عدد صحیح (شناسه پیام ریشه) باشد؛ مقدار فعلی: {raw!r}")
 
-config = _config_instance
+def load_config(env_file: Optional[str] = None) -> Config:
+    """خواندن و اعتبارسنجی کامل پیکربندی. در صورت نقص اساسی، ConfigError پرتاب می‌شود."""
+    if env_file and os.path.exists(env_file):
+        load_dotenv(env_file)
+    else:
+        load_dotenv()  # پیش‌فرض .env کنار پروژه
+    bot_token = _get_env("BOT_TOKEN")
+    if ":" not in bot_token:
+        raise ConfigError("BOT_TOKEN نامعتبر است؛ توکن را از BotFather دریافت کنید.")
+    try:
+        owner_id = int(_get_env("OWNER_ID"))
+    except ValueError:
+        raise ConfigError("OWNER_ID باید شناسه‌ی عددی تلگرامِ مالک باشد.")
+    topics = {k: _get_topic_id(k) for k in TOPIC_KEYS}
+    group_raw = os.environ.get("GROUP_ID", "").strip()
+    group_id = int(group_raw) if group_raw.isdigit() else None
+    try:
+        general_rate_limit = int(os.environ.get("RATE_LIMIT_GENERAL_PER_HOUR", "10").strip() or "10")
+    except ValueError:
+        general_rate_limit = 10
+    if general_rate_limit < 1:
+        general_rate_limit = 10
+    return Config(
+        bot_token=bot_token,
+        owner_id=owner_id,
+        group_id=group_id,
+        topics=topics,
+        db_path=os.environ.get("DB_PATH", "bot_data.db"),
+        banned_words_path=os.environ.get("BANNED_WORDS_PATH", "banned_words.txt"),
+        general_rate_limit=general_rate_limit,
+    )
+
+def missing_topics(cfg: Config) -> list:
+    """فهرست موضوعاتی که شناسه‌ی آن‌ها هنوز ثبت نشده است."""
+    return [k for k, v in cfg.topics.items() if v == 0]
+
+if __name__ == "__main__":
+    # اجرای مستقل برای تست اعتبارسنجی: python config.py
+    try:
+        c = load_config()
+        miss = missing_topics(c)
+        print("پیکربندی معتبر است.", f"موضوعات تنظیم‌نشده: {miss}" if miss else "تمام موضوعات ثبت شده‌اند.")
+    except ConfigError as e:
+        print("خطای پیکربندی:", e, file=sys.stderr)
+        sys.exit(1)
