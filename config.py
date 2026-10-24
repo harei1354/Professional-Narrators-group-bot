@@ -7,9 +7,9 @@ load_dotenv()
 class ConfigError(Exception):
     pass
 
-# ۱. مقادیر اصلی
+# ۱. آیدی گروه و توکن ربات
 BOT_TOKEN: str = os.getenv("BOT_TOKEN", "").strip()
-GROUP_ID: int = int(os.getenv("GROUP_CHAT_ID", os.getenv("GROUP_ID", "0")))
+GROUP_ID: int = int(os.getenv("GROUP_ID", os.getenv("GROUP_CHAT_ID", "0")))
 GROUP_CHAT_ID: int = GROUP_ID
 
 # ۲. ادمین‌ها
@@ -18,43 +18,44 @@ ADMIN_IDS: List[int] = [
     int(x.strip()) for x in _admin_ids_raw.split(",") if x.strip().isdigit()
 ]
 
-# ۳. متغیرهای تاپیک‌ها (پشتیبانی همزمان از نام‌های عددی و حروفی)
-TOPIC_GENERAL: int = int(os.getenv("TOPIC_GENERAL", os.getenv("TOPIC_1", "1")))
-TOPIC_PODCAST: int = int(os.getenv("TOPIC_PODCAST", os.getenv("TOPIC_2", "213")))
-TOPIC_RULES: int = int(os.getenv("TOPIC_RULES", os.getenv("TOPIC_3", "14")))
-TOPIC_PORTFOLIO: int = int(os.getenv("TOPIC_PORTFOLIO", os.getenv("TOPIC_4", "3")))
-TOPIC_INTRO: int = int(os.getenv("TOPIC_INTRO", os.getenv("TOPIC_5", "66")))
-TOPIC_TARIFF: int = int(os.getenv("TOPIC_TARIFF", os.getenv("TOPIC_6", "72")))
-TOPIC_PROJECTS: int = int(os.getenv("TOPIC_PROJECTS", os.getenv("TOPIC_7", "4")))
-TOPIC_REVIEWS: int = int(os.getenv("TOPIC_REVIEWS", os.getenv("TOPIC_8", "473")))
-TOPIC_AUDIO: int = int(os.getenv("TOPIC_AUDIO", os.getenv("TOPIC_9", "488")))
+# ۳. متغیرهای تاپیک‌ها (پشتیبانی از هر دو حالت TOPIC_1 تا TOPIC_9 و اسامی انگلیسی)
+TOPIC_1: int = int(os.getenv("TOPIC_1", os.getenv("TOPIC_GENERAL", "1")))
+TOPIC_2: int = int(os.getenv("TOPIC_2", os.getenv("TOPIC_PODCAST", "213")))
+TOPIC_3: int = int(os.getenv("TOPIC_3", os.getenv("TOPIC_RULES", "14")))
+TOPIC_4: int = int(os.getenv("TOPIC_4", os.getenv("TOPIC_PORTFOLIO", "3")))
+TOPIC_5: int = int(os.getenv("TOPIC_5", os.getenv("TOPIC_INTRO", "66")))
+TOPIC_6: int = int(os.getenv("TOPIC_6", os.getenv("TOPIC_TARIFF", "72")))
+TOPIC_7: int = int(os.getenv("TOPIC_7", os.getenv("TOPIC_PROJECTS", "4")))
+TOPIC_8: int = int(os.getenv("TOPIC_8", os.getenv("TOPIC_REVIEWS", "473")))
+TOPIC_9: int = int(os.getenv("TOPIC_9", os.getenv("TOPIC_AUDIO", "488")))
 
-# متغیرهای مستعار TOPIC_1 تا TOPIC_9
-TOPIC_1 = TOPIC_GENERAL
-TOPIC_2 = TOPIC_PODCAST
-TOPIC_3 = TOPIC_RULES
-TOPIC_4 = TOPIC_PORTFOLIO
-TOPIC_5 = TOPIC_INTRO
-TOPIC_6 = TOPIC_TARIFF
-TOPIC_7 = TOPIC_PROJECTS
-TOPIC_8 = TOPIC_REVIEWS
-TOPIC_9 = TOPIC_AUDIO
+# متغیرهای مستعار هم‌نام برای بخش‌های دیگر
+TOPIC_GENERAL = TOPIC_1
+TOPIC_PODCAST = TOPIC_2
+TOPIC_RULES = TOPIC_3
+TOPIC_PORTFOLIO = TOPIC_4
+TOPIC_INTRO = TOPIC_5
+TOPIC_TARIFF = TOPIC_6
+TOPIC_PROJECTS = TOPIC_7
+TOPIC_REVIEWS = TOPIC_8
+TOPIC_AUDIO = TOPIC_9
 
-# ۴. محدودیت‌ها
+# ۴. محدودیت‌های ارسال پیام
 GENERAL_HOURLY_LIMIT: int = int(os.getenv("RATE_LIMIT_GENERAL_PER_HOUR", os.getenv("GENERAL_HOURLY_LIMIT", "10")))
 GENERAL_DAILY_LIMIT: int = int(os.getenv("GENERAL_DAILY_LIMIT", "15"))
 DATABASE_PATH: str = os.getenv("DATABASE_PATH", "bot_database.db")
 
+# دیکشنری نگاشت تاپیک‌ها
 TOPICS: Dict[str, int] = {
-    "general": TOPIC_GENERAL,
-    "podcast": TOPIC_PODCAST,
-    "rules": TOPIC_RULES,
-    "portfolio": TOPIC_PORTFOLIO,
-    "intro": TOPIC_INTRO,
-    "tariff": TOPIC_TARIFF,
-    "projects": TOPIC_PROJECTS,
-    "reviews": TOPIC_REVIEWS,
-    "audio": TOPIC_AUDIO,
+    "general": TOPIC_1,
+    "podcast": TOPIC_2,
+    "rules": TOPIC_3,
+    "portfolio": TOPIC_4,
+    "intro": TOPIC_5,
+    "tariff": TOPIC_6,
+    "projects": TOPIC_7,
+    "reviews": TOPIC_8,
+    "audio": TOPIC_9,
 }
 
 class Config:
@@ -63,6 +64,15 @@ class Config:
         self.GROUP_ID = GROUP_ID
         self.GROUP_CHAT_ID = GROUP_CHAT_ID
         self.ADMIN_IDS = ADMIN_IDS
+        self.TOPIC_1 = TOPIC_1
+        self.TOPIC_2 = TOPIC_2
+        self.TOPIC_3 = TOPIC_3
+        self.TOPIC_4 = TOPIC_4
+        self.TOPIC_5 = TOPIC_5
+        self.TOPIC_6 = TOPIC_6
+        self.TOPIC_7 = TOPIC_7
+        self.TOPIC_8 = TOPIC_8
+        self.TOPIC_9 = TOPIC_9
         self.TOPIC_GENERAL = TOPIC_GENERAL
         self.TOPIC_PODCAST = TOPIC_PODCAST
         self.TOPIC_RULES = TOPIC_RULES
