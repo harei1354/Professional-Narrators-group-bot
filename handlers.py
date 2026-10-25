@@ -33,20 +33,28 @@ def is_wrong_group(u,c):
     cfg=c.application.bot_data.get("cfg")
     allowed=getattr(cfg,'allowed_chat_id',None) if cfg else None
     return allowed is not None and chat.id!=allowed
-def is_owner(update, cfg): return bool(update.effective_user and update.effective_user.id == cfg.owner_id)
+def is_owner(update, cfg):
+    """True only when the sender ID matches the loaded, validated owner_id."""
+    user = getattr(update, "effective_user", None)
+    owner_id = getattr(cfg, "owner_id", None)
+    return (user is not None and isinstance(owner_id, int) and not isinstance(owner_id, bool)
+            and getattr(user, "id", None) == owner_id)
 
 async def is_group_owner(update, context, cfg):
-    """True for configured bot owner or the Telegram group creator."""
+    """Central moderation exemption: configured owner ID or the actual group creator."""
     if is_owner(update, cfg):
         return True
-    chat, user = update.effective_chat, update.effective_user
-    if not chat or not user:
+    chat, user = getattr(update, "effective_chat", None), getattr(update, "effective_user", None)
+    if not chat or not user or chat.type not in (ChatType.GROUP, ChatType.SUPERGROUP):
         return False
+    # Role-based exemption does not depend on ALLOWED_CHAT_ID. The separate
+    # allowed-chat guard still prevents processing unrelated groups.
     try:
         member = await context.bot.get_chat_member(chat.id, user.id)
         status = getattr(member.status, "value", member.status)
         return status == "creator"
-    except TelegramError:
+    except Exception:
+        # API failure never overrides an explicit owner-ID match (checked above).
         return False
 
 async def is_admin(update, context, cfg):
@@ -54,8 +62,9 @@ async def is_admin(update, context, cfg):
     if not update.effective_chat or not update.effective_user: return False
     try:
         m=await context.bot.get_chat_member(update.effective_chat.id, update.effective_user.id)
-        return m.status in ("administrator","creator")
-    except TelegramError: return False
+        status = getattr(m.status, "value", m.status)
+        return status in ("administrator", "creator")
+    except Exception: return False
 
 def topic_key(message, cfg):
     """Resolve a Telegram thread id to exactly one of the nine configured topics.
@@ -215,7 +224,7 @@ async def enforce_violation(update,context,cfg,db,engine,rule,details,topic):
     m=update.effective_message; user=update.effective_user
     if not m or not user: return
     # Defense in depth: owner/creator must never have a message removed or recorded.
-    if await is_group_owner(update, context, cfg): return
+    if is_owner(update, cfg) or await is_group_owner(update, context, cfg): return
     try: await m.delete()
     except TelegramError as e: await db.log_admin_event("delete_failed",f"chat={m.chat_id} message={m.message_id} type={type(e).__name__}")
     # مدیران/مالک: گزارش بدون تنبیه خودکار (پیش‌فرض امن)
@@ -255,6 +264,7 @@ async def on_message(u,c):
     cfg,db=ctx_objects(c)
     # Total exemption before any content, topic, fingerprint, quota, or policy checks.
     # Includes configured owner and Telegram's actual group creator.
+    # Early return: no moderation, rate limit, fingerprint, counter, warning, or deletion.
     if await is_group_owner(u,c,cfg): return
     await db.upsert_user(user.id,user.username,user.first_name)
     admin=await is_admin(u,c,cfg)

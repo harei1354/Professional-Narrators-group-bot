@@ -37,7 +37,7 @@ class ConfigError(Exception):
 @dataclass(frozen=True)
 class Config:
     bot_token: str
-    owner_id: int
+    owner_id: Optional[int]
     allowed_chat_id: Optional[int]                # شناسه گروه مجاز؛ از ALLOWED_CHAT_ID یا GROUP_ID خوانده می‌شود
     @property
     def group_id(self) -> Optional[int]:
@@ -103,10 +103,13 @@ def load_config(env_file: Optional[str] = None) -> Config:
     bot_token = _get_env("BOT_TOKEN")
     if ":" not in bot_token:
         raise ConfigError("BOT_TOKEN نامعتبر است؛ توکن را از BotFather دریافت کنید.")
+    # OWNER_ID اختیاری است تا در نبود/اشتباه بودن آن، گروه مجاز بتواند
+    # مالک واقعی Telegram (creator) را به‌صورت امن تشخیص دهد.
+    owner_raw = os.environ.get("OWNER_ID", "").strip()
     try:
-        owner_id = int(_get_env("OWNER_ID"))
+        owner_id = int(owner_raw) if owner_raw else None
     except ValueError:
-        raise ConfigError("OWNER_ID باید شناسه‌ی عددی تلگرامِ مالک باشد.")
+        owner_id = None
     topics = {k: _get_topic_id(k) for k in TOPIC_KEYS}
     allowed_raw = os.environ.get("ALLOWED_CHAT_ID", os.environ.get("GROUP_ID", "-1003875005655")).strip()
     try:
