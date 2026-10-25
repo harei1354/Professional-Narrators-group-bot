@@ -4,6 +4,7 @@ OWNER_ID, BOT_TOKEN و شناسه‌ی ۹ موضوع (TOPIC_1 تا TOPIC_9) از
 هیچ شناسه‌ی ساختگی‌ای تولید نمی‌شود؛ اگر متغیری نباشد، اعتبارسنجی خطا می‌دهد."""
 from __future__ import annotations
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 from typing import Dict, Optional
@@ -37,7 +38,8 @@ class ConfigError(Exception):
 @dataclass(frozen=True)
 class Config:
     bot_token: str
-    owner_id: Optional[int]
+    owner_id: Optional[int]                       # سازگاری عقب‌رو: نخستین شناسه از OWNER_ID
+    owner_ids: tuple = ()                          # همه شناسه‌های مالک (OWNER_ID می‌تواند "123,456" باشد)
     allowed_chat_id: Optional[int]                # شناسه گروه مجاز؛ از ALLOWED_CHAT_ID یا GROUP_ID خوانده می‌شود
     @property
     def group_id(self) -> Optional[int]:
@@ -68,6 +70,55 @@ class Config:
     penalty_mute1_hours: int = 24
     penalty_mute2_days: int = 7
     exempt_admins_from_penalties: bool = True    # پیش‌فرض امن: تنبیه خودکارِ مدیران/مالک خاموش
+
+def parse_owner_ids(raw) -> tuple:
+    # OWNER_ID را به تاپلی شناسه‌های عددی تبدیل می‌کند؛ پشتیبانی از int، رشته تکی،
+    # رشته با کاما/فاصله/؛ (مثل "123456,789012") و لیست/تاپلی.
+    if raw is None:
+        return ()
+    if isinstance(raw, bool):
+        return ()
+    if isinstance(raw, int):
+        return (raw,)
+    if isinstance(raw, float) and raw.is_integer():
+        return (int(raw),)
+    if isinstance(raw, (list, tuple, set)):
+        out = []
+        for item in raw:
+            out.extend(parse_owner_ids(item))
+        return tuple(dict.fromkeys(out))
+    if isinstance(raw, str):
+        out = []
+        for part in re.split(r"[,;\s]+", raw.strip()):
+            if not part:
+                continue
+            try:
+                out.append(int(part))
+            except ValueError:
+                continue
+        return tuple(dict.fromkeys(out))
+    return ()
+
+_MODULE_OWNER_IDS: tuple = ()   # شناسه‌های OWNER_ID محیط؛ در زمان import پر می‌شود
+_MODULE_OWNER_IDS = parse_owner_ids(os.environ.get("OWNER_ID", ""))
+
+def is_owner(user_id, cfg=None) -> bool:
+    # helper سراسری: آیا این کاربر مالک است؟ (int | چند شناسه | بدون cfg)
+    if user_id is None:
+        return False
+    try:
+        user_id = int(user_id)
+    except (TypeError, ValueError):
+        return False
+    ids = ()
+    if cfg is not None:
+        ids = tuple(getattr(cfg, "owner_ids", ()) or ())
+        if not ids:
+            oid = getattr(cfg, "owner_id", None)
+            ids = (oid,) if oid else ()
+    if not ids:
+        ids = _MODULE_OWNER_IDS
+    return user_id in ids
 
 def _get_env(name: str) -> str:
     val = os.environ.get(name, "").strip()
@@ -106,10 +157,8 @@ def load_config(env_file: Optional[str] = None) -> Config:
     # OWNER_ID اختیاری است تا در نبود/اشتباه بودن آن، گروه مجاز بتواند
     # مالک واقعی Telegram (creator) را به‌صورت امن تشخیص دهد.
     owner_raw = os.environ.get("OWNER_ID", "").strip()
-    try:
-        owner_id = int(owner_raw) if owner_raw else None
-    except ValueError:
-        owner_id = None
+    owner_ids = parse_owner_ids(owner_raw)
+    owner_id = owner_ids[0] if owner_ids else None
     topics = {k: _get_topic_id(k) for k in TOPIC_KEYS}
     allowed_raw = os.environ.get("ALLOWED_CHAT_ID", os.environ.get("GROUP_ID", "-1003875005655")).strip()
     try:
@@ -125,6 +174,7 @@ def load_config(env_file: Optional[str] = None) -> Config:
     return Config(
         bot_token=bot_token,
         owner_id=owner_id,
+        owner_ids=owner_ids,
         allowed_chat_id=allowed_chat_id,
         topics=topics,
         db_path=os.environ.get("DB_PATH", "bot_data.db"),

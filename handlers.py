@@ -34,11 +34,12 @@ def is_wrong_group(u,c):
     allowed=getattr(cfg,'allowed_chat_id',None) if cfg else None
     return allowed is not None and chat.id!=allowed
 def is_owner(update, cfg):
-    """True only when the sender ID matches the loaded, validated owner_id."""
+    """True only when the sender ID matches a configured owner ID (single or multiple)."""
+    from config import is_owner as config_is_owner
     user = getattr(update, "effective_user", None)
-    owner_id = getattr(cfg, "owner_id", None)
-    return (user is not None and isinstance(owner_id, int) and not isinstance(owner_id, bool)
-            and getattr(user, "id", None) == owner_id)
+    if user is None or getattr(user, "id", None) is None:
+        return False
+    return config_is_owner(user.id, cfg)
 
 async def is_group_owner(update, context, cfg):
     """Central moderation exemption: configured owner ID or the actual group creator."""
@@ -52,7 +53,9 @@ async def is_group_owner(update, context, cfg):
     try:
         member = await context.bot.get_chat_member(chat.id, user.id)
         status = getattr(member.status, "value", member.status)
-        return status == "creator"
+        if status == "creator" or member.__class__.__name__ == "ChatMemberOwner":
+            return True
+        return False
     except Exception:
         # API failure never overrides an explicit owner-ID match (checked above).
         return False
@@ -284,7 +287,7 @@ async def on_message(u,c):
             except TelegramError: pass
         return
     # تنها مالک می‌تواند در قوانین منتشر کند؛ فقط مدیران در پروژه‌ها.
-    if key=="rules" and user.id!=cfg.owner_id:
+    if key=="rules" and not await is_group_owner(u,c,cfg):
         return await enforce_violation(u,c,cfg,db,engine,"rules_only_owner","فقط مالک در قوانین و اطلاعیه‌ها پیام می‌فرستد.",key)
     if key=="projects" and not admin:
         try: await m.reply_text("ارسال مستقیم پروژه برای اعضا بسته است. برای درخواست همکاری، ربات را خصوصی شروع کنید و /collab بزنید.")

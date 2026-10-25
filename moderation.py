@@ -114,13 +114,31 @@ class Violation:
     until: dt.datetime | None = None
 
 class ModerationEngine:
-    def __init__(self, db: Database, banned: BannedWords, owner_id: int | None = None):
+    def __init__(self, db: Database, banned: BannedWords, owner_id: int | None = None,
+                 owner_ids: Iterable[int] = ()):
         self.db, self.banned = db, banned
         self.owner_id = owner_id
+        ids = set(o for o in owner_ids if o is not None)
+        if owner_id is not None:
+            ids.add(owner_id)
+        self.owner_ids = ids
+
+    def _is_owner(self, user_id: int | None) -> bool:
+        """Owner exemption without any restriction: any configured owner ID is exempt."""
+        if user_id is None:
+            return False
+        if user_id in self.owner_ids:
+            return True
+        # Fallback to the central config helper (multiple/comma-separated OWNER_ID).
+        try:
+            from config import is_owner as config_is_owner
+            return config_is_owner(user_id)
+        except Exception:
+            return False
 
     async def detect(self, text: str, entities=(), forwarded=False, forward_origin=None,
                      user_id: int | None = None):
-        if self.owner_id is not None and user_id == self.owner_id:
+        if self._is_owner(user_id):
             return None
         bad = self.banned.find(text)
         if bad:
@@ -132,7 +150,7 @@ class ModerationEngine:
     async def make_fingerprint(self, text: str, file_ids: Iterable[str], user_id: int,
                                chat_id: int, message_id: int, topic: str) -> bool:
         # Configured owner never participates in duplicate/fingerprint tracking.
-        if self.owner_id is not None and user_id == self.owner_id:
+        if self._is_owner(user_id):
             return True
         fp = text_fingerprint(text, file_ids)
         # متن خالی و بدون رسانه اثرانگشت معنادار ندارد
@@ -144,7 +162,7 @@ class ModerationEngine:
                                message_kind: str, chat_id: int, message_id: int,
                                details: str = "") -> Violation | None:
         """سطح تنبیه بر اساس سابقه پایدار؛ update_id یکتا جلوگیری از اجرای دوباره."""
-        if self.owner_id is not None and user_id == self.owner_id:
+        if self._is_owner(user_id):
             return None
         count_before = await self.db.count_violations(user_id)
         stage = min(count_before + 1, 4)

@@ -13,7 +13,7 @@ log=logging.getLogger("narrators-bot")
 
 def create_app(cfg, db):
     app=Application.builder().token(cfg.bot_token).rate_limiter(AIORateLimiter()).build()
-    app.bot_data.update(cfg=cfg,db=db,engine=ModerationEngine(db,BannedWords(cfg.banned_words_path), owner_id=cfg.owner_id))
+    app.bot_data.update(cfg=cfg,db=db,engine=ModerationEngine(db,BannedWords(cfg.banned_words_path), owner_id=cfg.owner_id, owner_ids=getattr(cfg,'owner_ids',())))
     conv=ConversationHandler(entry_points=[CommandHandler("collab",collab_start)],
       states={FULL:[MessageHandler(filters.TEXT & ~filters.COMMAND,full_name)],PHONE:[MessageHandler(filters.TEXT & ~filters.COMMAND,phone)],EMAIL:[MessageHandler(filters.TEXT & ~filters.COMMAND,email)]},
       fallbacks=[CommandHandler("cancel",cancel)],allow_reentry=True)
