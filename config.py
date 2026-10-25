@@ -28,6 +28,9 @@ LEGACY_TOPIC_ENV_KEYS = {
     "audio": "TOPIC_AUDIO",
 }
 
+GENERAL_HOURLY_LIMIT = int(os.environ.get("GENERAL_HOURLY_LIMIT", os.environ.get("RATE_LIMIT_GENERAL_PER_HOUR", "10")).strip() or "10") or 10  # سقف ساعتی گفت‌وگوی عمومی (قابل بازنویسی با متغیر محیطی)
+GENERAL_DAILY_LIMIT = int(os.environ.get("GENERAL_DAILY_LIMIT", "15").strip() or "15") or 15  # سقف روزانه‌ی پیام هر کاربر در گفت‌وگوی عمومی (UTC تقویمی)
+
 class ConfigError(Exception):
     """خطای اعتبارسنجی پیکربندی — مانع راه‌اندازی ربات می‌شود."""
 
@@ -40,16 +43,16 @@ class Config:
     db_path: str
     banned_words_path: str
     timezone: str = "Asia/Tehran"                # منطقه‌ی زمانی مستندشده برای شمارش ماه/روز تقویمی
-    general_rate_limit: int = 10                 # سقف پیام در ساعت در گفت‌وگوی عمومی (RATE_LIMIT_GENERAL_PER_HOUR)
-    general_rate_limit: int = 10                 # سقف پیام کاربران معمولی در ساعت در گفت‌وگوی عمومی (RATE_LIMIT_GENERAL_PER_HOUR)
+    general_rate_limit: int = GENERAL_HOURLY_LIMIT  # سقف پیام کاربران معمولی در ساعت در گفت‌وگوی عمومی (RATE_LIMIT_GENERAL_PER_HOUR)
     topic_names: Dict[str, str] = field(default_factory=lambda: dict(zip(TOPIC_KEYS, (
         "گفت‌وگوی عمومی گویندگان", "پادکست؛ تولید و تدوین", "قوانین و اطلاعیه‌ها",
         "نمونه‌کارهای گویندگی", "معرفی گویندگان حرفه‌ای", "تعرفه‌ها و قراردادهای گویندگی",
         "پروژه‌ها و درخواست‌های همکاری", "نقد و بررسی کارهای گویندگی", "ویرایش و بهینه‌سازی صدا",
     ))))
     # ثابت‌های قوانین (قابل تنظیم نیستند مگر با کد — مطابق متن قانون)
-    general_hourly: int = 10
-    general_daily: int = 15
+    general_daily_limit: int = GENERAL_DAILY_LIMIT
+    general_hourly: int = GENERAL_HOURLY_LIMIT
+    general_daily: int = GENERAL_DAILY_LIMIT
     general_refresh_users: int = 5               # «پنج کاربر دیگر» = ۵ کاربرِ متمایزِ غیر از خودِ کاربر
     portfolio_weekly: int = 1
     portfolio_monthly: int = 3
@@ -104,11 +107,11 @@ def load_config(env_file: Optional[str] = None) -> Config:
     group_raw = os.environ.get("GROUP_ID", "").strip()
     group_id = int(group_raw) if group_raw.isdigit() else None
     try:
-        general_rate_limit = int(os.environ.get("RATE_LIMIT_GENERAL_PER_HOUR", "10").strip() or "10")
+        general_rate_limit = int(os.environ.get("RATE_LIMIT_GENERAL_PER_HOUR", str(GENERAL_HOURLY_LIMIT)).strip() or str(GENERAL_HOURLY_LIMIT))
     except ValueError:
-        general_rate_limit = 10
+        general_rate_limit = GENERAL_HOURLY_LIMIT
     if general_rate_limit < 1:
-        general_rate_limit = 10
+        general_rate_limit = GENERAL_HOURLY_LIMIT
     return Config(
         bot_token=bot_token,
         owner_id=owner_id,

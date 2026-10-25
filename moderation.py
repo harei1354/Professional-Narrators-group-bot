@@ -4,6 +4,7 @@
 from __future__ import annotations
 import datetime as dt
 import hashlib
+import os
 import html
 import re
 import unicodedata
@@ -21,11 +22,16 @@ def normalize_text(text: str) -> str:
     text = unicodedata.normalize("NFKC", text or "").translate(CHAR_MAP).lower()
     text = re.sub(r"[\u064b-\u065f\u0670]", "", text)
     text = re.sub(r"(.)\1{2,}", r"\1\1", text)  # محدودکردن کشیده‌ی نویسه (نه حذف کامل)
-    text = re.sub(r"[^\w@.+:/-]+", " ", text, flags=re.UNICODE)
+    text = re.sub(r"[^\w@:/-]+", " ", text, flags=re.UNICODE)
     return " ".join(text.split())
 
 class BannedWords:
     def __init__(self, path: str, exceptions: Iterable[str] = ()):
+        # مسیر پیش‌فرض نسبت به همین فایل (moderation.py) حل می‌شود، مستقل از cwd.
+        if not os.path.isabs(path) and not os.path.exists(path):
+            alt = os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
+            if os.path.exists(alt):
+                path = alt
         self.path = path
         self.exceptions = {normalize_text(x) for x in exceptions}
         self.words: list[str] = []
@@ -34,17 +40,47 @@ class BannedWords:
     def reload(self):
         try:
             with open(self.path, encoding="utf-8") as f:
-                self.words = [normalize_text(line.strip()) for line in f
-                              if line.strip() and not line.lstrip().startswith("#")]
-        except FileNotFoundError:
+                raw_lines = f.readlines()
+        except (FileNotFoundError, OSError):
             self.words = []
+            return
+        words: list[str] = []
+        for line in raw_lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            # سرصفحه‌های تزئینی فهرست (── ، 🔍 ، === ، تعداد کل: ...)
+            if re.match(r"^(──|===|≡|\W*لیست|تعداد کل)", stripped):
+                continue
+            # حذف پیشوند عددی اختیاری مثل "12. " یا "3) "
+            stripped = re.sub(r"^\s*\d+\s*[.)\-–:]\s*", "", stripped).strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            w = normalize_text(stripped)
+            if w:
+                words.append(w)
+        self.words = sorted(set(words), key=len, reverse=True)
 
     def find(self, text: str) -> str | None:
-        norm = normalize_text(text)
+        norm = normalize_text(text or "")
+        if not norm:
+            return None
+        # نسخه‌ی فشرده برای شکار حالت‌های حرف تکراری (کوون -> کون)
+        compact = re.sub(r"(.)\1+", r"\1", norm)
+        tokens = norm.split()
         padded = f" {norm} "
+        padded_c = f" {compact} "
         for word in self.words:
-            if word and word not in self.exceptions and f" {word} " in padded:
+            if not word or word in self.exceptions:
+                continue
+            if f" {word} " in padded or f" {word} " in padded_c:
                 return word
+            parts = word.split()
+            if len(parts) == 1 and len(word) >= 5:
+                # واژه‌های بلند: تطبیق درون‌واژه‌ای (پیوست‌شده/بدون فاصله)؛
+                # قطعه‌های کوتاه برای جلوگیری از مثبت کاذب فقط با تطبیق کل توکن.
+                if any(word in t or word in re.sub(r"(.)\1+", r"\1", t) for t in tokens):
+                    return word
         return None
 
 # لینک URL، دامنه، shorteners، لینک‌های t.me، username و متن دارای entity لینک

@@ -35,13 +35,20 @@ async def is_admin(update, context, cfg):
     except TelegramError: return False
 
 def topic_key(message, cfg):
-    """Resolve a Telegram thread id to exactly one of the nine configured topics."""
+    """Resolve a Telegram thread id to exactly one of the nine configured topics.
+
+    None (General topic) maps to "general" whenever the general topic is
+    configured with id None, 0 or 1 — Telegram sends message_thread_id=None
+    for messages in the General topic.
+    """
     tid = getattr(message, "message_thread_id", None)
-    if tid is None:
-        return None
     for key in TOPIC_KEYS:
         if cfg.topics.get(key) and cfg.topics[key] == tid:
             return key
+    if tid is None or tid in (0, 1):
+        cfg_general = cfg.topics.get("general")
+        if cfg_general in (None, 0, 1) or "general" in TOPIC_KEYS and cfg_general == tid:
+            return "general"
     return None
 
 def message_kind(m):
@@ -247,12 +254,19 @@ async def on_message(u,c):
         if not tariff: await db.register_tariff(user.id,m.message_id,h)
         else: await m.reply_text("تعرفه‌ی قبلی ثبت است؛ برای ویرایش همان پیام را ویرایش کنید. Telegram API امکان قفل‌کردن ویرایش کاربر را نمی‌دهد.")
     elif key=="general":
-        # سقف سختِ RATE_LIMIT_GENERAL_PER_HOUR (پیش‌فرض ۱۰ پیام در ساعت) برای کاربران معمولی.
-        hk=dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d-%H")
+        # سقف سختِ گفت‌وگوی عمومی برای کاربران معمولی:
+        # ساعتی = RATE_LIMIT_GENERAL_PER_HOUR (پیش‌فرض ۱۰) و روزانه = GENERAL_DAILY_LIMIT (پیش‌فرض ۱۵).
+        now_utc=dt.datetime.now(dt.timezone.utc)
+        hk=now_utc.strftime("%Y-%m-%d-%H")
+        dk=now_utc.strftime("%Y-%m-%d")
         allowed=await db.bump_counter(user.id,"general","hour",hk,cfg.general_rate_limit)
         if not allowed:
             return await enforce_violation(u,c,cfg,db,engine,"general_rate_limit",
                 f"بیش از حد مجاز پیام در گفت‌وگوی عمومی ({cfg.general_rate_limit} پیام در ساعت)؛ پیام حذف شد.",key)
+        allowed=await db.bump_counter(user.id,"general","day",dk,cfg.general_daily_limit)
+        if not allowed:
+            return await enforce_violation(u,c,cfg,db,engine,"general_daily_limit",
+                f"سقف روزانه گفت‌وگوی عمومی پر شد ({cfg.general_daily_limit} پیام در روز)؛ پیام حذف شد.",key)
     elif key=="podcast":
         await db.podcast_refresh_seen_other(user.id)
         allowed,why=await db.podcast_quota_check(user.id)
