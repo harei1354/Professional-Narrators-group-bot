@@ -38,7 +38,11 @@ class ConfigError(Exception):
 class Config:
     bot_token: str
     owner_id: int
-    group_id: Optional[int]                      # شناسه عددی سوپرگروه (اختیاری؛ با /group_id قابل تنظیم)
+    allowed_chat_id: Optional[int]                # شناسه گروه مجاز؛ از ALLOWED_CHAT_ID یا GROUP_ID خوانده می‌شود
+    @property
+    def group_id(self) -> Optional[int]:
+        """سازگاری عقب‌رو برای کدهای قدیمی؛ منبع واقعی allowed_chat_id است."""
+        return self.allowed_chat_id
     topics: Dict[str, int]                       # شناسه‌های واقعی Message Thread ID
     db_path: str
     banned_words_path: str
@@ -104,8 +108,11 @@ def load_config(env_file: Optional[str] = None) -> Config:
     except ValueError:
         raise ConfigError("OWNER_ID باید شناسه‌ی عددی تلگرامِ مالک باشد.")
     topics = {k: _get_topic_id(k) for k in TOPIC_KEYS}
-    group_raw = os.environ.get("GROUP_ID", "").strip()
-    group_id = int(group_raw) if group_raw.isdigit() else None
+    allowed_raw = os.environ.get("ALLOWED_CHAT_ID", os.environ.get("GROUP_ID", "-1003875005655")).strip()
+    try:
+        allowed_chat_id = int(allowed_raw)
+    except ValueError:
+        raise ConfigError("ALLOWED_CHAT_ID باید شناسه عددی گروه باشد.")
     try:
         general_rate_limit = int(os.environ.get("RATE_LIMIT_GENERAL_PER_HOUR", str(GENERAL_HOURLY_LIMIT)).strip() or str(GENERAL_HOURLY_LIMIT))
     except ValueError:
@@ -115,7 +122,7 @@ def load_config(env_file: Optional[str] = None) -> Config:
     return Config(
         bot_token=bot_token,
         owner_id=owner_id,
-        group_id=group_id,
+        allowed_chat_id=allowed_chat_id,
         topics=topics,
         db_path=os.environ.get("DB_PATH", "bot_data.db"),
         banned_words_path=os.environ.get("BANNED_WORDS_PATH", "banned_words.txt"),

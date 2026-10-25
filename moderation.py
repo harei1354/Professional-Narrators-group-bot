@@ -114,10 +114,14 @@ class Violation:
     until: dt.datetime | None = None
 
 class ModerationEngine:
-    def __init__(self, db: Database, banned: BannedWords):
+    def __init__(self, db: Database, banned: BannedWords, owner_id: int | None = None):
         self.db, self.banned = db, banned
+        self.owner_id = owner_id
 
-    async def detect(self, text: str, entities=(), forwarded=False, forward_origin=None):
+    async def detect(self, text: str, entities=(), forwarded=False, forward_origin=None,
+                     user_id: int | None = None):
+        if self.owner_id is not None and user_id == self.owner_id:
+            return None
         bad = self.banned.find(text)
         if bad:
             return "banned_word", "عبارت نامناسب (فقط دسته تخلف ثبت می‌شود)"
@@ -127,6 +131,9 @@ class ModerationEngine:
 
     async def make_fingerprint(self, text: str, file_ids: Iterable[str], user_id: int,
                                chat_id: int, message_id: int, topic: str) -> bool:
+        # Configured owner never participates in duplicate/fingerprint tracking.
+        if self.owner_id is not None and user_id == self.owner_id:
+            return True
         fp = text_fingerprint(text, file_ids)
         # متن خالی و بدون رسانه اثرانگشت معنادار ندارد
         if not (normalize_text(text or "") or list(file_ids)):
@@ -137,6 +144,8 @@ class ModerationEngine:
                                message_kind: str, chat_id: int, message_id: int,
                                details: str = "") -> Violation | None:
         """سطح تنبیه بر اساس سابقه پایدار؛ update_id یکتا جلوگیری از اجرای دوباره."""
+        if self.owner_id is not None and user_id == self.owner_id:
+            return None
         count_before = await self.db.count_violations(user_id)
         stage = min(count_before + 1, 4)
         actions = {1: "warning", 2: "mute24", 3: "mute7", 4: "ban"}

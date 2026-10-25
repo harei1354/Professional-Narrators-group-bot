@@ -25,7 +25,30 @@ TOPIC_NAMES = {
 }
 
 def ctx_objects(context): return context.application.bot_data["cfg"], context.application.bot_data["db"]
+
+def is_wrong_group(u,c):
+    """Guard: اگر چت گروهی/سوپرگروهی باشد و گروه مجاز نباشد True برمی‌گرداند؛ چت خصوصی آزاد است."""
+    chat=u.effective_chat
+    if not chat or chat.type not in (ChatType.GROUP,ChatType.SUPERGROUP): return False
+    cfg=c.application.bot_data.get("cfg")
+    allowed=getattr(cfg,'allowed_chat_id',None) if cfg else None
+    return allowed is not None and chat.id!=allowed
 def is_owner(update, cfg): return bool(update.effective_user and update.effective_user.id == cfg.owner_id)
+
+async def is_group_owner(update, context, cfg):
+    """True for configured bot owner or the Telegram group creator."""
+    if is_owner(update, cfg):
+        return True
+    chat, user = update.effective_chat, update.effective_user
+    if not chat or not user:
+        return False
+    try:
+        member = await context.bot.get_chat_member(chat.id, user.id)
+        status = getattr(member.status, "value", member.status)
+        return status == "creator"
+    except TelegramError:
+        return False
+
 async def is_admin(update, context, cfg):
     if is_owner(update,cfg): return True
     if not update.effective_chat or not update.effective_user: return False
@@ -71,31 +94,37 @@ def file_ids(m):
 async def help_cmd(u,c):
     await u.effective_message.reply_text("راهنمای ربات گویندگان حرفه‌ای\nدستورات اعضا: /help، /collab\nمدیر: /status، /topic_id، /group_id، /warnings ID، /history ID، /unmute ID، /set_topic KEY ID، /collabs، /approve ID، /reject ID، /backup، /restore (پیوست فایل JSON)، /reset_counter ID [topic]\nبرای ثبت درخواست همکاری، ابتدا در گفت‌وگوی خصوصی ربات /collab را بزنید.")
 async def status_cmd(u,c):
+    if is_wrong_group(u,c): return
     cfg,db=ctx_objects(c)
     if not await is_admin(u,c,cfg): return await u.effective_message.reply_text("این فرمان فقط برای مدیران گروه است.")
     missing=[k for k,v in cfg.topics.items() if not v]
     await u.effective_message.reply_text(f"ربات فعال است. گروه={cfg.group_id or 'ثبت‌نشده'}؛ پایگاه داده={cfg.db_path}\nموضوعات ناقص: {', '.join(missing) or 'هیچ‌کدام'}\nمدیران از تنبیه خودکار معاف‌اند.")
 async def topic_id(u,c):
+    if is_wrong_group(u,c): return
     m=u.effective_message
     await m.reply_text(f"chat_id={m.chat_id}\nmessage_thread_id={getattr(m,'message_thread_id',None)}\nmessage_id={m.message_id}\nبرای شناسایی تاپیک، از message_thread_id استفاده کنید؛ شناسهٔ موضوع را در TOPIC_1..TOPIC_9 ثبت کنید (ترتیب در README_FA.md).")
 async def group_id(u,c): await u.effective_message.reply_text(f"شناسه گروه: {u.effective_chat.id}")
 async def warnings(u,c):
+    if is_wrong_group(u,c): return
     cfg,db=ctx_objects(c)
     if not await is_admin(u,c,cfg): return await u.effective_message.reply_text("دسترسی ندارید.")
     if not c.args or not c.args[0].lstrip('-').isdigit(): return await u.effective_message.reply_text("کاربرد: /warnings شناسه_کاربر")
     uid=int(c.args[0]); await u.effective_message.reply_text(f"کاربر {uid}: {await db.count_violations(uid)} تخلف ثبت‌شده.")
 async def history(u,c):
+    if is_wrong_group(u,c): return
     cfg,db=ctx_objects(c)
     if not await is_admin(u,c,cfg): return await u.effective_message.reply_text("دسترسی ندارید.")
     if not c.args or not c.args[0].lstrip('-').isdigit(): return await u.effective_message.reply_text("کاربرد: /history شناسه_کاربر")
     rows=await db.list_violations(int(c.args[0])); text="\n".join(f"{a} | {b} | {d}" for a,b,_,d in rows) or "سابقه‌ای نیست."
     await u.effective_message.reply_text(text[:4000])
 async def set_topic(u,c):
+    if is_wrong_group(u,c): return
     cfg,db=ctx_objects(c)
     if not is_owner(u,cfg): return await u.effective_message.reply_text("فقط مالک ربات مجاز است.")
     if len(c.args)!=2 or c.args[0] not in TOPIC_KEYS or not c.args[1].isdigit(): return await u.effective_message.reply_text("کاربرد: /set_topic general 123 یا /set_topic reviews 473 (فقط OWNER_ID)")
     await db.set_setting("topic_"+c.args[0],c.args[1]); await u.effective_message.reply_text("ثبت شد؛ برای فعال‌سازی فوری، مقدار TOPIC_* را در تنظیمات Render نیز به‌روز و سرویس را راه‌اندازی مجدد کنید.")
 async def unmute(u,c):
+    if is_wrong_group(u,c): return
     cfg,db=ctx_objects(c)
     if not await is_admin(u,c,cfg): return await u.effective_message.reply_text("دسترسی ندارید.")
     if not c.args or not c.args[0].lstrip('-').isdigit(): return await u.effective_message.reply_text("کاربرد: /unmute شناسه_کاربر")
@@ -103,6 +132,7 @@ async def unmute(u,c):
     try: await c.bot.restrict_chat_member(u.effective_chat.id,int(c.args[0]),permissions=perms); await db.log_admin_event("unmute",f"by={u.effective_user.id} user={c.args[0]}"); await u.effective_message.reply_text("رفع محدودیت انجام شد.")
     except TelegramError: await u.effective_message.reply_text("عملیات ناموفق بود؛ مجوز Restrict members و شناسه را بررسی کنید.")
 async def collabs(u,c):
+    if is_wrong_group(u,c): return
     cfg,db=ctx_objects(c)
     if not await is_admin(u,c,cfg): return await u.effective_message.reply_text("دسترسی ندارید.")
     rows=await db.list_collabs("pending")
@@ -126,14 +156,20 @@ async def decide_collab(u,c,approved):
         if ok: await db.set_collab_status(rid,"published",msg.message_id)
         await u.effective_message.reply_text("تأیید و انتشار انجام شد." if ok else "انتشار شد اما تغییر وضعیت شکست خورد؛ بررسی دستی لازم است.")
     except TelegramError: await u.effective_message.reply_text("انتشار ناموفق بود؛ درخواست همچنان در انتظار بررسی است.")
-async def approve(u,c): return await decide_collab(u,c,True)
-async def reject(u,c): return await decide_collab(u,c,False)
+async def approve(u,c):
+    if is_wrong_group(u,c): return
+    return await decide_collab(u,c,True)
+async def reject(u,c):
+    if is_wrong_group(u,c): return
+    return await decide_collab(u,c,False)
 async def backup(u,c):
+    if is_wrong_group(u,c): return
     cfg,db=ctx_objects(c)
     if not is_owner(u,cfg): return await u.effective_message.reply_text("فقط مالک مجاز است.")
     path="/tmp/bot_backup.json"; await db.backup_json(path)
     with open(path,"rb") as f: await u.effective_message.reply_document(f,filename="bot_backup.json",caption="پشتیبان؛ درخواست‌ها فقط با اطلاعات ماسک‌شده.")
 async def restore(u,c):
+    if is_wrong_group(u,c): return
     cfg,db=ctx_objects(c)
     if not is_owner(u,cfg): return await u.effective_message.reply_text("فقط مالک مجاز است.")
     doc=u.effective_message.document
@@ -142,6 +178,7 @@ async def restore(u,c):
     try: n=await db.restore_json("/tmp/restore.json"); await u.effective_message.reply_text(f"بازیابی شد؛ {n} ردیف.")
     except Exception: await u.effective_message.reply_text("فایل پشتیبان نامعتبر است؛ داده تغییر نکرده یا بازیابی ناقص است.")
 async def reset_counter(u,c):
+    if is_wrong_group(u,c): return
     cfg,db=ctx_objects(c)
     if not is_owner(u,cfg): return await u.effective_message.reply_text("فقط مالک مجاز است.")
     if not c.args or not c.args[0].isdigit(): return await u.effective_message.reply_text("کاربرد: /reset_counter ID [topic]")
@@ -177,6 +214,8 @@ async def cancel(u,c): c.user_data.clear(); await u.effective_message.reply_text
 async def enforce_violation(update,context,cfg,db,engine,rule,details,topic):
     m=update.effective_message; user=update.effective_user
     if not m or not user: return
+    # Defense in depth: owner/creator must never have a message removed or recorded.
+    if await is_group_owner(update, context, cfg): return
     try: await m.delete()
     except TelegramError as e: await db.log_admin_event("delete_failed",f"chat={m.chat_id} message={m.message_id} type={type(e).__name__}")
     # مدیران/مالک: گزارش بدون تنبیه خودکار (پیش‌فرض امن)
@@ -207,8 +246,17 @@ async def enforce_violation(update,context,cfg,db,engine,rule,details,topic):
 
 async def on_message(u,c):
     m=u.effective_message; user=u.effective_user
-    if not m or not user or m.chat.type not in (ChatType.GROUP,ChatType.SUPERGROUP): return
-    cfg,db=ctx_objects(c); await db.upsert_user(user.id,user.username,user.first_name)
+    if not m or not user: return
+    # قفل سوپرگروه مجاز: در گروه/سوپرگروه فقط چت مجاز پردازش می‌شود؛ چت خصوصی برای مدیریتی آزاد است.
+    if m.chat.type in (ChatType.GROUP,ChatType.SUPERGROUP):
+        cfg0,db0=ctx_objects(c)
+        if cfg0.allowed_chat_id is not None and m.chat.id != cfg0.allowed_chat_id:
+            return
+    cfg,db=ctx_objects(c)
+    # Total exemption before any content, topic, fingerprint, quota, or policy checks.
+    # Includes configured owner and Telegram's actual group creator.
+    if await is_group_owner(u,c,cfg): return
+    await db.upsert_user(user.id,user.username,user.first_name)
     admin=await is_admin(u,c,cfg)
     engine=c.application.bot_data["engine"]
     key=topic_key(m,cfg)
@@ -234,7 +282,8 @@ async def on_message(u,c):
         return
     # بررسی لینک/فوروارد و الفاظ
     text=m.text or m.caption or ""
-    result=await engine.detect(text, list(m.entities or [])+list(m.caption_entities or []), bool(m.forward_origin),m.forward_origin)
+    result=await engine.detect(text, list(m.entities or [])+list(m.caption_entities or []),
+                               bool(m.forward_origin), m.forward_origin, user_id=user.id)
     if result: return await enforce_violation(u,c,cfg,db,engine,result[0],result[1],key)
     # fingerprint در تمام موضوعات، برای جلوگیری از بازنشر بین موضوع‌ها
     ids=file_ids(m); fp=engine.make_fingerprint
